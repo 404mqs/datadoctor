@@ -23,14 +23,65 @@ from notifiers.base import BaseNotifier
 TIER_EMOJI  = {"green": "🟢", "yellow": "🟡"}
 TIER_COLOR  = {"green": "#36a64f", "yellow": "#daa520"}
 VALIDATION_EMOJI = {
-    "passed":         "✅",
-    "diffs_detected": "⚠️",
-    "failed":         "❌",
-    "skipped":        "⏭️",
-    "no_changes":     "💤",
-    "llm_error":      "💥",
-    "export_error":   "🚫",
+    "passed":           "✅",
+    "smoke_passed":     "✅",
+    "smoke_failed":     "❌",
+    "schema_mismatch":  "⚠️",
+    "data_mismatch":    "⚠️",
+    "failed":           "❌",
+    "skipped":          "⏭️",
+    "no_changes":       "💤",
+    "llm_error":        "💥",
+    "export_error":     "🚫",
 }
+SAVINGS_EMOJI = {"alto": "🔴", "medio": "🟡", "bajo": "🟢",
+                 "high": "🔴", "medium": "🟡", "low": "🟢"}
+
+
+def _format_cambio(c: dict) -> str:
+    desc  = c.get("descripcion") or c.get("description") or ""
+    nivel = (c.get("ahorro_estimado") or c.get("estimated_savings") or "").lower()
+    emoji = SAVINGS_EMOJI.get(nivel, "")
+    if len(desc) > 100:
+        desc = desc[:97] + "…"
+    return f"• {desc}  {emoji}".rstrip()
+
+
+def _validation_line(tier: str, vstatus: str, vdetails: dict = None) -> str:
+    """Returns a compact single-line validation summary for Slack."""
+    if vstatus == "skipped":
+        return "Validation: ⏭ skipped"
+    if vstatus == "failed":
+        return "Validation: ❌ error"
+    if tier == "yellow":
+        if vstatus == "smoke_passed":
+            return "Validation: ✅ smoke"
+        if vstatus == "smoke_failed":
+            return "Validation: ❌ smoke"
+        return "Validation: ⏭ skipped"
+    # Green — T1 + T2 + T3
+    if vstatus == "smoke_failed":
+        return "Validation: ❌ smoke"
+    checks = ["✅ smoke"]
+    if vstatus == "schema_mismatch":
+        detail = ""
+        if vdetails:
+            for sc in vdetails.get("schema_checks", []):
+                if not sc.get("match"):
+                    cols = sc.get("missing_columns", []) + sc.get("added_columns", [])
+                    chg  = list(sc.get("changed_types", {}).keys())
+                    if cols:
+                        detail = f" — `{cols[0]}`" + (f" +{len(cols)-1} more" if len(cols) > 1 else "")
+                    elif chg:
+                        detail = f" — type `{chg[0]}` changed"
+                    break
+        return "Validation: " + "  ".join(checks) + f"  ❌ schema{detail}"
+    checks.append("✅ schema")
+    if vstatus == "data_mismatch":
+        return "Validation: " + "  ".join(checks) + "  ❌ data"
+    if vstatus == "passed":
+        checks.append("✅ data")
+    return "Validation: " + "  ".join(checks)
 
 
 class SlackNotifier(BaseNotifier):
@@ -162,28 +213,12 @@ class SlackNotifier(BaseNotifier):
             else:
                 cambios = analisis.get("cambios_aplicados") or analisis.get("changes_applied") or []
                 if cambios:
-                    bullets = "\n".join(
-                        f"• {c.get('descripcion', c.get('description', ''))}  "
-                        f"_(savings: {c.get('ahorro_estimado', c.get('estimated_savings', '?'))})_"
-                        for c in cambios[:5]
-                    )
+                    bullets = "\n".join(_format_cambio(c) for c in cambios[:4])
                     att.append({"type": "section",
                                 "text": {"type": "mrkdwn",
                                          "text": f"*Proposed changes:*\n{bullets}"}})
 
-            footer_parts = []
-            if vstatus == "passed":
-                footer_parts.append("✅ Validation passed")
-            elif vstatus == "diffs_detected":
-                footer_parts.append("⚠️ Diffs detected — review before approving")
-            elif vstatus == "failed":
-                footer_parts.append("❌ Validation failed — see `datadoc.proposals`")
-            elif p["tier"] == "yellow":
-                if p.get("self_reference"):
-                    footer_parts.append("🔄 Self-reference — notebook reads and writes the same table; auto-validation unavailable")
-                else:
-                    footer_parts.append("📝 No automatic validation")
-
+            footer_parts = [_validation_line(p["tier"], vstatus, p.get("validation_details"))]
             if p.get("v2_path"):
                 footer_parts.append(f"v2: `{p['v2_path']}`")
             if p.get("proposal_id") and p.get("v2_path") and not p.get("approve_url"):

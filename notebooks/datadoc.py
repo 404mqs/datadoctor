@@ -740,15 +740,17 @@ for task in candidates:
 
     # 6. Validate if applicable
     validation = {"validation_status": "skipped", "details": None, "run_id": None}
-    if tier == "green" and VALIDATE_MODE == "on":
-        cluster_id = VALIDATION_CLUSTER
+    _run_green  = tier == "green"  and VALIDATE_MODE == "on"
+    _run_yellow = tier == "yellow" and VALIDATE_MODE != "off" and not classification["side_effects"]
+    if _run_green or _run_yellow:
         try:
             val = validate_proposal(
                 host=HOST, token=TOKEN, spark=spark,
                 v2_source=v2_source,
                 target_tables=target_tables,
-                cluster_id=cluster_id,
+                cluster_id=VALIDATION_CLUSTER,
                 sandbox_dir=SANDBOX_DIR,
+                smoke_only=_run_yellow,
             )
             validation = {
                 "validation_status": val.get("validation_status"),
@@ -760,12 +762,10 @@ for task in candidates:
             validation = {"validation_status": "failed",
                           "details": {"error": str(e)}, "run_id": None}
             print(f"  [validator] error: {e}")
-    elif tier == "yellow":
-        validation["details"] = {"reason": classification["reason"]}
 
-    # If validation found output differences, discard this proposal and try the next notebook
-    if validation["validation_status"] == "diffs_detected":
-        print(f"  [validation] diffs detected — proposal discarded, trying next task")
+    # If validation found structural or data differences, discard and try the next notebook
+    if validation["validation_status"] in ("data_mismatch", "schema_mismatch"):
+        print(f"  [validation] {validation['validation_status']} — proposal discarded, trying next task")
         continue
 
     # 7. Insert proposal
@@ -798,6 +798,7 @@ for task in candidates:
         "task_key": task_key, "duration_min": duration_min, "tier": tier,
         "proposal_id": proposal_id, "v2_path": v2_path,
         "validation_status": validation["validation_status"],
+        "validation_details": validation.get("details") or {},
         "analisis": llm_result["analisis"],
         "self_reference": self_reference,
         "approve_url": approve_url,
