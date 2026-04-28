@@ -281,9 +281,10 @@ ranked_all.sort(key=lambda x: x["duration_s"], reverse=True)
 
 cooled_tasks = get_cooled_tasks(COOLDOWN_DAYS)
 top_tasks    = apply_cooldown(ranked_all, cooled_tasks, TOP_N)
+candidates   = apply_cooldown(ranked_all, cooled_tasks, len(ranked_all))  # full pool for fallback
 
 label = f"avg. {n_runs} run{'s' if n_runs > 1 else ''}"
-print(f"\nTop {TOP_N} slowest ({label}) — cooldown={COOLDOWN_DAYS}d:")
+print(f"\nTop {TOP_N} slowest ({label}) — cooldown={COOLDOWN_DAYS}d ({len(candidates)} candidates total):")
 for i, t in enumerate(top_tasks, 1):
     mins = t["duration_s"] / 60
     print(f"  {i}. {t['task_key']:<50} {mins:6.1f} min")
@@ -638,8 +639,11 @@ deleted_btn = cleanup_button_jobs()
 print(f"Previous button jobs deleted: {deleted_btn}")
 
 proposals_resumen = []  # for the notification report
+accepted = 0
 
-for task in top_tasks:
+for task in candidates:
+    if accepted >= TOP_N:
+        break
     task_key      = task["task_key"]
     duration_s    = task["duration_s"]
     notebook_path = task["notebook_path"]
@@ -726,7 +730,7 @@ for task in top_tasks:
     # 6. Validate if applicable
     validation = {"validation_status": "skipped", "details": None, "run_id": None}
     if tier == "green" and VALIDATE_MODE == "on":
-        cluster_id = VALIDATION_CLUSTER or ctx.clusterId().get()
+        cluster_id = VALIDATION_CLUSTER
         try:
             val = validate_proposal(
                 host=HOST, token=TOKEN, spark=spark,
@@ -747,6 +751,11 @@ for task in top_tasks:
             print(f"  [validator] error: {e}")
     elif tier == "yellow":
         validation["details"] = {"reason": classification["reason"]}
+
+    # If validation found output differences, discard this proposal and try the next notebook
+    if validation["validation_status"] == "diffs_detected":
+        print(f"  [validation] diffs detected — proposal discarded, trying next task")
+        continue
 
     # 7. Insert proposal
     spark.sql(f"""
@@ -784,6 +793,7 @@ for task in top_tasks:
         "reject_url":  reject_url,
         "review_url":  review_url,
     })
+    accepted += 1
 
 # COMMAND ----------
 
