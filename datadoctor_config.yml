@@ -1,0 +1,61 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Data Doctor — Configuration
+# Fill in all values before running scripts/upload_all.py
+# ─────────────────────────────────────────────────────────────────────────────
+
+databricks:
+  # Your Databricks workspace URL (no trailing slash)
+  host: "https://<your-workspace>.azuredatabricks.net"
+
+  # Job ID of the orchestrator job you want to monitor
+  job_id: 123456789
+
+  # All-purpose cluster ID used for validation runs and ephemeral button jobs
+  # Must be a non-serverless all-purpose cluster (serverless clusters are rejected by the Jobs API)
+  cluster_id: "xxxx-yyyyyyy-zzzzzzzz"
+
+  # Workspace path where Data Doctor files will be uploaded
+  # Must start with /Workspace/Shared/ or a path your account can write to
+  workspace_path: "/Workspace/Shared/DataDoctor"
+
+agent:
+  # How many slow notebooks to analyze per run
+  top_n: 3
+
+  # Days to skip a task after an optimization is applied (prevents re-proposing before it stabilizes)
+  cooldown_days: 5
+
+  # Run only on odd calendar days to save LLM tokens (set to false to run every day)
+  odd_days_only: true
+
+  # Delta schema where proposals and applied_changes tables live
+  delta_schema: "datadoc"
+
+  # Task key of THIS notebook in your orchestrator job — excluded from slow-task ranking
+  self_task_key: "DATADOCTOR"
+
+llm:
+  # Databricks serving endpoint name for the LLM
+  # Recommended: databricks-claude-opus-4-7 (best results for code optimization)
+  # Any OpenAI-compatible Databricks serving endpoint works
+  endpoint_name: "databricks-claude-opus-4-7"
+
+  # Max tokens for LLM response (16000 is safe for diff-based output)
+  max_tokens: 16000
+
+notifications:
+  # "slack"  — posts proposals to a Slack channel with approve/reject buttons
+  # "none"   — logs to stdout only; proposals are saved in datadoc.proposals
+  type: "slack"
+
+  slack:
+    # Slack channel ID for optimization proposals (where approve/reject buttons appear)
+    channel_proposals: "C..."
+
+    # Slack channel ID for audit log (approve/reject/rollback confirmations)
+    channel_audit: "C..."
+
+    # Databricks secret scope and key where the Slack bot token is stored
+    # Store your bot token with: databricks secrets put-secret <scope> <key>
+    secret_scope: "datadoctor"
+    secret_key: "slack_bot_token"
