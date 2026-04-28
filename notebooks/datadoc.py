@@ -78,7 +78,7 @@ print(f"Config loaded. LLM: {LLM_MODEL} | top_n: {TOP_N} | schema: {DELTA_SCHEMA
 # COMMAND ----------
 
 # DBTITLE 1,Odd-day check
-from datetime import timezone, timedelta as _td
+from datetime import datetime, timezone, timedelta as _td
 _LOCAL_TZ = timezone(_td(hours=int(CFG["agent"].get("timezone_offset_hours", -3))))
 _today    = datetime.now(_LOCAL_TZ)
 if _today.day % 2 == 0 and ODD_DAYS_ONLY and not FORCE_RUN:
