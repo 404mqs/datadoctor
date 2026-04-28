@@ -123,6 +123,18 @@ To **rollback** after approving, run `datadoc_approve` with `accion=rollback`.
 
 ---
 
+## Continuous improvement & cooldown
+
+Data Doctor is designed for **continuous, incremental optimization** — not a one-shot pass. Each run it targets the slowest notebooks that haven't been recently touched, applies one improvement, and moves on to the next bottleneck on the following run.
+
+To support this, every task that receives an approved optimization enters a **cooldown period** (default: 5 days). During cooldown, that task is skipped from the slow-task ranking so Data Doctor can focus on other notebooks instead of repeatedly re-analyzing the same one.
+
+This also prevents a subtle feedback loop: a freshly optimized notebook may run slower for the first few executions (Spark JIT warm-up, Delta cache cold start) and would otherwise keep appearing as a candidate — generating redundant proposals before the improvement has had time to prove itself.
+
+To disable cooldown entirely, set `agent.cooldown_days: 0` in the config.
+
+---
+
 ## Tiers
 
 | Tier | Meaning | What Data Doctor does |
