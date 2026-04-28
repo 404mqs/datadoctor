@@ -47,22 +47,29 @@ def _format_cambio(c: dict) -> str:
     return f"• {desc}  {emoji}".rstrip()
 
 
-def _validation_line(tier: str, vstatus: str, vdetails: dict = None) -> str:
+def _validation_line(tier: str, vstatus: str, vdetails: dict = None,
+                     workspace_url: str = "") -> str:
     """Returns a compact single-line validation summary for Slack."""
+    run_id = (vdetails or {}).get("run_id")
+    if run_id and workspace_url:
+        smoke_txt = f"<{workspace_url}/jobs/runs/{run_id}|smoke>"
+    else:
+        smoke_txt = "smoke"
+
     if vstatus == "skipped":
         return "Validation: ⏭ skipped"
     if vstatus == "failed":
         return "Validation: ❌ error"
     if tier == "yellow":
         if vstatus == "smoke_passed":
-            return "Validation: ✅ smoke"
+            return f"Validation: ✅ {smoke_txt}"
         if vstatus == "smoke_failed":
-            return "Validation: ❌ smoke"
+            return f"Validation: ❌ {smoke_txt}"
         return "Validation: ⏭ skipped"
     # Green — T1 + T2 + T3
     if vstatus == "smoke_failed":
-        return "Validation: ❌ smoke"
-    checks = ["✅ smoke"]
+        return f"Validation: ❌ {smoke_txt}"
+    checks = [f"✅ {smoke_txt}"]
     if vstatus == "schema_mismatch":
         detail = ""
         if vdetails:
@@ -97,6 +104,7 @@ class SlackNotifier(BaseNotifier):
         self._channel_audit     = slack_cfg["channel_audit"]
         self._secret_scope      = slack_cfg["secret_scope"]
         self._secret_key        = slack_cfg["secret_key"]
+        self._workspace_url     = cfg["databricks"]["host"].rstrip("/")
         self._dbutils           = dbutils
         self._token: Optional[str] = None
 
@@ -218,7 +226,8 @@ class SlackNotifier(BaseNotifier):
                                 "text": {"type": "mrkdwn",
                                          "text": f"*Proposed changes:*\n{bullets}"}})
 
-            footer_parts = [_validation_line(p["tier"], vstatus, p.get("validation_details"))]
+            footer_parts = [_validation_line(p["tier"], vstatus, p.get("validation_details"),
+                                             workspace_url=self._workspace_url)]
             if p.get("v2_path"):
                 footer_parts.append(f"v2: `{p['v2_path']}`")
             if p.get("proposal_id") and p.get("v2_path") and not p.get("approve_url"):
