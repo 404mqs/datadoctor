@@ -74,6 +74,7 @@ def mkdirs(host: str, token: str, path: str) -> None:
 def apply_proposal(host: str, token: str, spark,
                    proposal_id: str, applied_by: str,
                    backup_dir: str = "/Workspace/Shared/DataDoctor/backups",
+                   delta_schema: str = "datadoc",
                    notes: str = "") -> dict:
     """
     Applies a proposal: backup of the original + overwrite with the v2.
@@ -85,7 +86,7 @@ def apply_proposal(host: str, token: str, spark,
     # 1. Read the proposal
     proposals = spark.sql(f"""
         SELECT original_path, v2_path, status, task_key
-        FROM datadoc.proposals
+        FROM {delta_schema}.proposals
         WHERE proposal_id = '{proposal_id}'
     """).collect()
 
@@ -122,7 +123,7 @@ def apply_proposal(host: str, token: str, spark,
     # 4. Insert into applied_changes
     applied_ts = datetime.utcnow()
     spark.sql(f"""
-        INSERT INTO datadoc.applied_changes
+        INSERT INTO {delta_schema}.applied_changes
         VALUES (
             timestamp '{applied_ts.isoformat()}',
             '{proposal_id}',
@@ -138,7 +139,7 @@ def apply_proposal(host: str, token: str, spark,
     # 5. Update proposals
     notes_escaped = notes.replace("'", "''")
     spark.sql(f"""
-        UPDATE datadoc.proposals
+        UPDATE {delta_schema}.proposals
         SET status = 'applied',
             status_updated_ts = timestamp '{applied_ts.isoformat()}',
             status_updated_by = '{applied_by}',
@@ -171,13 +172,14 @@ def reject_proposal(spark, proposal_id: str, rejected_by: str, reason: str = "")
 def rollback_applied_change(host: str, token: str, spark,
                             proposal_id: str,
                             rolled_back_by: str = "unknown",
-                            backup_dir: str = "/Workspace/Shared/DataDoctor/backups") -> dict:
+                            backup_dir: str = "/Workspace/Shared/DataDoctor/backups",
+                            delta_schema: str = "datadoc") -> dict:
     """
     Reverts an applied change: takes the backup and restores it over the production path.
     """
     rows = spark.sql(f"""
         SELECT notebook_path, backup_path, rollback_ts
-        FROM datadoc.applied_changes
+        FROM {delta_schema}.applied_changes
         WHERE proposal_id = '{proposal_id}'
         ORDER BY applied_ts DESC
         LIMIT 1
@@ -198,14 +200,14 @@ def rollback_applied_change(host: str, token: str, spark,
 
     rollback_ts = datetime.utcnow().isoformat()
     spark.sql(f"""
-        UPDATE datadoc.applied_changes
+        UPDATE {delta_schema}.applied_changes
         SET rollback_ts = timestamp '{rollback_ts}',
             rollback_by = '{rolled_back_by}'
         WHERE proposal_id = '{proposal_id}'
     """)
 
     spark.sql(f"""
-        UPDATE datadoc.proposals
+        UPDATE {delta_schema}.proposals
         SET status = 'rejected',
             status_updated_ts = current_timestamp(),
             status_updated_by = '{rolled_back_by}',

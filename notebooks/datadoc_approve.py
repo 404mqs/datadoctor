@@ -109,7 +109,9 @@ if ACTION == "approve":
 
     print(f"\n🔧 Applying proposal {PROPOSAL_ID} ...")
     result = apply_proposal(HOST, TOKEN, spark, PROPOSAL_ID, USER,
-                            backup_dir=BACKUP_DIR, notes=NOTES)
+                            backup_dir=BACKUP_DIR,
+                            delta_schema=DELTA_SCHEMA,
+                            notes=NOTES)
     print(f"✅ Applied")
     print(f"   Backup at: {result['backup_path']}")
     print(f"   To revert: run this notebook with action='rollback' and the same proposal_id.")
@@ -132,7 +134,8 @@ elif ACTION == "rollback":
     print(f"\n↩️ Rolling back proposal {PROPOSAL_ID} ...")
     result = rollback_applied_change(HOST, TOKEN, spark, PROPOSAL_ID,
                                      rolled_back_by=USER,
-                                     backup_dir=BACKUP_DIR)
+                                     backup_dir=BACKUP_DIR,
+                                     delta_schema=DELTA_SCHEMA)
     print(f"✅ Rollback complete. Notebook {result['notebook_path']} restored from backup.")
 
 else:
