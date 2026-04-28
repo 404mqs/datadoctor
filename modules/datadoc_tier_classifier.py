@@ -106,11 +106,11 @@ def detect_side_effects(source: str) -> List[str]:
 
 def classify_notebook(source: str) -> Dict:
     """
-    Classifies a notebook into tier green/yellow/red.
+    Classifies a notebook into tier green/yellow.
 
     Returns:
         {
-            "tier": "green" | "yellow" | "red",
+            "tier": "green" | "yellow",
             "target_tables": [...],
             "side_effects": [...],
             "reason": "..."

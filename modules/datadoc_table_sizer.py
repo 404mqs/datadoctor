@@ -248,7 +248,7 @@ def format_size_context(sizes: Dict[str, dict]) -> str:
         return "(sizes could not be estimated — use conservative broadcast criteria)"
 
     lines = [f"TABLE SIZES ON DISK (broadcast threshold: {BROADCAST_SAFE_MB} MB):"]
-    for name, info in sorted(sizes.items(), key=lambda x: -(x[1]["size_mb"] if x[1]["size_mb"] >= 0 else float("inf"))):
+    for name, info in sorted(sizes.items(), key=lambda x: (-x[1]["size_mb"] if x[1]["size_mb"] >= 0 else float("inf"))):
         if info["broadcast_safe"]:
             tag = "✓ broadcast OK"
         elif info["size_mb"] < 0:

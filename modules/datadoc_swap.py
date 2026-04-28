@@ -169,7 +169,8 @@ def reject_proposal(spark, proposal_id: str, rejected_by: str, reason: str = "")
 
 
 def rollback_applied_change(host: str, token: str, spark,
-                            applied_ts, proposal_id: str,
+                            proposal_id: str,
+                            rolled_back_by: str = "unknown",
                             backup_dir: str = "/Workspace/Shared/DataDoctor/backups") -> dict:
     """
     Reverts an applied change: takes the backup and restores it over the production path.
@@ -199,7 +200,7 @@ def rollback_applied_change(host: str, token: str, spark,
     spark.sql(f"""
         UPDATE datadoc.applied_changes
         SET rollback_ts = timestamp '{rollback_ts}',
-            rollback_by = 'rollback'
+            rollback_by = '{rolled_back_by}'
         WHERE proposal_id = '{proposal_id}'
     """)
 
@@ -207,7 +208,7 @@ def rollback_applied_change(host: str, token: str, spark,
         UPDATE datadoc.proposals
         SET status = 'rejected',
             status_updated_ts = current_timestamp(),
-            status_updated_by = 'rollback',
+            status_updated_by = '{rolled_back_by}',
             notes = concat(coalesce(notes, ''), '\n[ROLLBACK] ')
         WHERE proposal_id = '{proposal_id}'
     """)

@@ -17,7 +17,7 @@ Strategy:
 
 Limitations:
 - Does not work if the notebook READS and WRITES to the same table (self-reference).
-  Those are classified as tier yellow/red by the classifier.
+  Those are classified as tier yellow by the classifier.
 - Requires the cluster to be running or able to be created on-demand.
 - Takes as long as the original notebook (the v2 runs in its entirety).
 """
