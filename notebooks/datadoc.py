@@ -42,6 +42,7 @@ with open(_CONFIG_PATH, "r", encoding="utf-8") as _f:
 HOST_CFG          = CFG["databricks"]["host"].rstrip("/")
 WORKSPACE_PATH    = CFG["databricks"]["workspace_path"]
 BTN_CLUSTER_ID    = CFG["databricks"]["cluster_id"]
+BTN_APPROVERS     = CFG.get("approvers", [])
 
 # Agent settings — widgets override config when provided
 _w_job_id     = dbutils.widgets.get("job_id").strip()
@@ -617,6 +618,16 @@ def create_button_jobs(proposal_id: str, task_key: str) -> tuple:
             }
         })
         job_id = resp["job_id"]
+        if BTN_APPROVERS:
+            try:
+                http("PUT", f"/api/2.0/permissions/jobs/{job_id}", {
+                    "access_control_list": [
+                        {"user_name": u, "permission_level": "CAN_MANAGE_RUN"}
+                        for u in BTN_APPROVERS
+                    ]
+                })
+            except Exception as perm_err:
+                print(f"  [btn_jobs] could not set permissions on job {job_id}: {perm_err}")
         base = f"{WORKSPACE_URL}/jobs/{job_id}"
         return f"{base}?o={_WORKSPACE_ID}" if _WORKSPACE_ID else base
 

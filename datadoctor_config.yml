@@ -59,3 +59,9 @@ notifications:
     # Store your bot token with: databricks secrets put-secret <scope> <key>
     secret_scope: "datadoctor"
     secret_key: "slack_bot_token"
+
+# Users who receive CAN_MANAGE_RUN permission on the ephemeral approve/reject jobs.
+# Without this, only the job creator can run them from the Databricks UI.
+# Optional — leave empty or omit this key to skip permission assignment.
+approvers:
+  - "user@yourcompany.com"
