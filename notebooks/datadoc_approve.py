@@ -121,7 +121,7 @@ elif ACTION == "reject":
         dbutils.notebook.exit(f"ERROR: current status is '{r['status']}', cannot reject.")
 
     reject_proposal(spark=spark, proposal_id=PROPOSAL_ID,
-                    rejected_by=USER, reason=NOTES)
+                    rejected_by=USER, delta_schema=DELTA_SCHEMA, reason=NOTES)
     print(f"✅ Proposal {PROPOSAL_ID} rejected.")
 
 elif ACTION == "rollback":

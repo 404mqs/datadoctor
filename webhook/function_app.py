@@ -5,8 +5,8 @@ import os
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
 
-DATABRICKS_HOST = os.environ.get("DATABRICKS_HOST", "https://adb-7878126364764762.2.azuredatabricks.net")
-CLUSTER_ID      = os.environ.get("CLUSTER_ID", "1120-205732-nkpi1h2k")
+DATABRICKS_HOST = os.environ.get("DATABRICKS_HOST", "")
+CLUSTER_ID      = os.environ.get("CLUSTER_ID", "")
 NOTEBOOK_PATH   = "/Workspace/Shared/DataDoctor/datadoc_approve"
 
 

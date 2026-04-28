@@ -155,11 +155,12 @@ def apply_proposal(host: str, token: str, spark,
     }
 
 
-def reject_proposal(spark, proposal_id: str, rejected_by: str, reason: str = "") -> Dict:
+def reject_proposal(spark, proposal_id: str, rejected_by: str,
+                    delta_schema: str = "datadoc", reason: str = "") -> Dict:
     """Marks a proposal as rejected (nothing is applied to the production notebook)."""
     reason_escaped = reason.replace("'", "''")
     spark.sql(f"""
-        UPDATE datadoc.proposals
+        UPDATE {delta_schema}.proposals
         SET status = 'rejected',
             status_updated_ts = current_timestamp(),
             status_updated_by = '{rejected_by}',
