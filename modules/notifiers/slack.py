@@ -16,6 +16,7 @@ import urllib.request
 from datetime import datetime
 from typing import Dict, List, Optional
 
+# sys.path must include the modules/ directory. The main notebook adds it at startup.
 from notifiers.base import BaseNotifier
 
 
@@ -66,7 +67,10 @@ class SlackNotifier(BaseNotifier):
         req.add_header("Authorization", f"Bearer {token}")
         req.add_header("Content-Type", "application/json; charset=utf-8")
         with urllib.request.urlopen(req) as r:
-            return json.loads(r.read().decode("utf-8"))
+            result = json.loads(r.read().decode("utf-8"))
+        if not result.get("ok"):
+            raise RuntimeError(f"Slack API error: {result.get('error', 'unknown')}")
+        return result
 
     def _post(self, channel_id: str, payload: dict) -> dict:
         body = {"channel": channel_id, **payload,
@@ -76,8 +80,12 @@ class SlackNotifier(BaseNotifier):
     def _build_proposal_payload(self, proposals: List[dict], run_ids: List[int],
                                  top_n: int, performance_gains: Optional[List[dict]]) -> dict:
         now = datetime.utcnow()
-        run_label = (f"Runs `{run_ids[0]}` + `{run_ids[1]}` (avg 2)"
-                     if len(run_ids) > 1 else f"Run `{run_ids[0]}`")
+        if not run_ids:
+            run_label = "No runs recorded"
+        elif len(run_ids) > 1:
+            run_label = f"Runs `{run_ids[0]}` + `{run_ids[1]}` (avg 2)"
+        else:
+            run_label = f"Run `{run_ids[0]}`"
 
         attachments = [{
             "color": "#4a9ed9",
