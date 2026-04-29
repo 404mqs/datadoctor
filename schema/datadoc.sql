@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS datadoc.proposals (
   validation_run_id    BIGINT,                -- run_id del test run si se corrió
 
   original_source_hash STRING,               -- SHA-256 of the original notebook source at proposal creation time; used to detect manual edits after proposal was generated
+  job_id               BIGINT,               -- Orchestrator job ID; allows multiple Data Doctor instances to share a single Delta schema
 
   status               STRING,                -- 'proposed' | 'approved' | 'rejected' | 'applied' | 'expired' | 'stale'
   status_updated_ts    TIMESTAMP,
@@ -48,8 +49,9 @@ USING DELTA
 PARTITIONED BY (status)
 COMMENT 'Data Doctor — propuestas de optimización generadas por el agente';
 
--- Migration: add column to existing table (run once)
+-- Migrations: add columns to existing table (run each once)
 -- ALTER TABLE datadoc.proposals ADD COLUMNS (original_source_hash STRING);
+-- ALTER TABLE datadoc.proposals ADD COLUMNS (job_id BIGINT);
 
 -- ------------------------------------------------------------
 -- Tabla: applied_changes

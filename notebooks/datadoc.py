@@ -241,6 +241,7 @@ def get_cooled_tasks(cooldown_days: int) -> Dict[str, datetime]:
         JOIN {DELTA_SCHEMA}.proposals p ON ac.proposal_id = p.proposal_id
         WHERE ac.applied_ts >= '{cutoff.strftime('%Y-%m-%d %H:%M:%S')}'
           AND ac.rollback_ts IS NULL
+          AND p.job_id = {JOB_ID}
         GROUP BY p.task_key
     """).collect()
     return {r.task_key: r.last_applied for r in rows}
@@ -464,7 +465,7 @@ def get_rejected_history(task_key: str) -> str:
         rows = spark.sql(f"""
             SELECT llm_analysis
             FROM {DELTA_SCHEMA}.proposals
-            WHERE task_key = :tk AND status = 'rejected'
+            WHERE task_key = :tk AND status = 'rejected' AND job_id = {JOB_ID}
             ORDER BY created_ts DESC
             LIMIT 5
         """, {"tk": task_key}).collect()
@@ -583,6 +584,7 @@ def check_performance_gains(all_durations: Dict[str, float]) -> List[dict]:
             WHERE date(ac.applied_ts) < date(current_timestamp())
               AND ac.rollback_ts IS NULL
               AND ac.first_reported_ts IS NULL
+              AND p.job_id = {JOB_ID}
             ORDER BY ac.applied_ts DESC
         """).collect()
     except Exception as e:
@@ -753,14 +755,14 @@ for task in candidates:
                    duration_original_s, tier, tier_reason, target_tables, side_effects,
                    llm_model, llm_analysis, llm_duration_s,
                    validation_status, validation_details, validation_run_id,
-                   original_source_hash,
+                   original_source_hash, job_id,
                    status, status_updated_ts, status_updated_by, notes)
                 SELECT
                   :pid, :ts, :rid, :tk, :op, NULL, :dur,
                   :tier, :reason, :tables, :sfx,
                   :model, :llm, 0.0,
                   'llm_error', NULL, NULL,
-                  :hash,
+                  :hash, {JOB_ID},
                   'proposed', :ts, 'datadoc', NULL
             """, {
                 "pid": proposal_id, "ts": EXECUTION_TS, "rid": run_id, "tk": task_key,
@@ -835,14 +837,14 @@ for task in candidates:
            duration_original_s, tier, tier_reason, target_tables, side_effects,
            llm_model, llm_analysis, llm_duration_s,
            validation_status, validation_details, validation_run_id,
-           original_source_hash,
+           original_source_hash, job_id,
            status, status_updated_ts, status_updated_by, notes)
         SELECT
           :pid, :ts, :rid, :tk, :op, :v2p, :dur,
           :tier, :reason, :tables, :sfx,
           :model, :llm, :llm_dur,
           :vstatus, :vdetails, :vrid,
-          :hash,
+          :hash, {JOB_ID},
           'proposed', :ts, 'datadoc', NULL
     """, {
         "pid": proposal_id, "ts": EXECUTION_TS, "rid": run_id, "tk": task_key,

@@ -189,21 +189,35 @@ To disable cooldown entirely, set `agent.cooldown_days: 0` in the config.
 
 ## Multiple orchestrators
 
-If your team runs several orchestrator jobs, deploy a separate Data Doctor instance per job.
-Each instance needs its own config file (`datadoctor_config.yml`) pointing to the correct `job_id`, and a distinct `agent.delta_schema` (e.g. `datadoc_pipelines`, `datadoc_ml`).
+Data Doctor supports multiple orchestrator jobs in the same workspace. Every proposal and query is scoped by `job_id`, so histories, cooldowns, rejection context, and performance gains are fully isolated per job — even when all instances share a single Delta schema.
 
-The proposals and applied-changes tables are scoped to that schema, so histories and rejection context stay isolated per orchestrator.
+**Recommended: shared schema, separate configs** — simplest to operate.
 
 ```yaml
-# config for the ML orchestrator
+# config for the data pipeline job
 databricks:
-  job_id: 987654321
+  job_id: 111111111
 agent:
-  delta_schema: "datadoc_ml"
+  delta_schema: "datadoc"        # shared schema
+  self_task_key: "DATADOCTOR"
+
+# config for the ML job
+databricks:
+  job_id: 222222222
+agent:
+  delta_schema: "datadoc"        # same schema, isolated by job_id
   self_task_key: "DATADOCTOR_ML"
 ```
 
-Run `scripts/upload_all.py` once per instance (it reads the path from your config).
+**Alternative: separate schemas** — maximum isolation, useful if you want per-team Delta permissions.
+
+```yaml
+# ML job uses its own schema
+agent:
+  delta_schema: "datadoc_ml"
+```
+
+Run `scripts/upload_all.py` once per instance (it reads `workspace_path` and uploads to a separate folder per instance).
 
 ---
 
