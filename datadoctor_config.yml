@@ -34,6 +34,10 @@ agent:
   # Task key of THIS notebook in your orchestrator job — excluded from slow-task ranking
   self_task_key: "DATADOCTOR"
 
+  # How many past orchestrator runs to average when computing task durations.
+  # Higher values smooth out outliers but require more API calls.
+  runs_to_average: 2
+
 llm:
   # Databricks serving endpoint name for the LLM
   # Recommended: databricks-claude-opus-4-7 (best results for code optimization)

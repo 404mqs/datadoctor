@@ -49,12 +49,13 @@ _w_job_id     = dbutils.widgets.get("job_id").strip()
 _w_top_n      = dbutils.widgets.get("top_n").strip()
 _w_cooldown   = dbutils.widgets.get("cooldown_days").strip()
 
-JOB_ID        = int(_w_job_id)      if _w_job_id    else int(CFG["databricks"]["job_id"])
-TOP_N         = int(_w_top_n)       if _w_top_n     else int(CFG["agent"]["top_n"])
-COOLDOWN_DAYS = int(_w_cooldown)    if _w_cooldown  else int(CFG["agent"]["cooldown_days"])
-ODD_DAYS_ONLY = CFG["agent"].get("odd_days_only", True)
-DELTA_SCHEMA  = CFG["agent"]["delta_schema"]
-QA_TASK_KEY   = CFG["agent"]["self_task_key"]
+JOB_ID           = int(_w_job_id)   if _w_job_id    else int(CFG["databricks"]["job_id"])
+TOP_N            = int(_w_top_n)    if _w_top_n     else int(CFG["agent"]["top_n"])
+COOLDOWN_DAYS    = int(_w_cooldown) if _w_cooldown  else int(CFG["agent"]["cooldown_days"])
+ODD_DAYS_ONLY    = CFG["agent"].get("odd_days_only", True)
+DELTA_SCHEMA     = CFG["agent"]["delta_schema"]
+QA_TASK_KEY      = CFG["agent"]["self_task_key"]
+RUNS_TO_AVERAGE  = int(CFG["agent"].get("runs_to_average", 2))
 
 # LLM
 LLM_MODEL         = CFG["llm"]["endpoint_name"]
@@ -188,12 +189,11 @@ def fetch_all_task_durations(run_id: int) -> Dict[str, float]:
     return result
 
 
-def resolve_two_run_ids() -> List[int]:
-    """Returns [current_run_id, previous_run_id] to average durations.
+def resolve_run_ids(n: int = 2) -> List[int]:
+    """Returns up to n run IDs to average task durations.
 
-    - current_run_id:  the orchestrator run currently in progress (today, DataDoctor runs inside it)
-    - previous_run_id: last COMPLETED orchestrator run (yesterday)
-    If there is no active run (manual execution), returns only the last completed one.
+    Always includes the active run (if any), then fills with the most recent
+    completed runs until the list has n entries.
     """
     run_ids = []
 
@@ -202,14 +202,15 @@ def resolve_two_run_ids() -> List[int]:
     active = resp_active.get("runs", [])
     if active:
         run_ids.append(active[0]["run_id"])
-        print(f"Active run (today):      {active[0]['run_id']}")
+        print(f"Active run (today): {active[0]['run_id']}")
 
-    resp_done = http("GET", "/api/2.1/jobs/runs/list",
-                     params={"job_id": JOB_ID, "limit": 1, "completed_only": "true"})
-    done = resp_done.get("runs", [])
-    if done:
-        run_ids.append(done[0]["run_id"])
-        print(f"Completed run (yesterday): {done[0]['run_id']}")
+    needed = n - len(run_ids)
+    if needed > 0:
+        resp_done = http("GET", "/api/2.1/jobs/runs/list",
+                         params={"job_id": JOB_ID, "limit": needed, "completed_only": "true"})
+        for r in resp_done.get("runs", [])[:needed]:
+            run_ids.append(r["run_id"])
+            print(f"Completed run:      {r['run_id']}")
 
     if not run_ids:
         raise RuntimeError(f"No runs found for job_id={JOB_ID}")
@@ -265,7 +266,7 @@ if RUN_ID_WIDGET:
     run_ids = [int(RUN_ID_WIDGET)]
     print(f"Manual run: {run_ids[0]}")
 else:
-    run_ids = resolve_two_run_ids()
+    run_ids = resolve_run_ids(RUNS_TO_AVERAGE)
 
 run_id        = run_ids[0]  # primary reference for notifications and proposal inserts
 n_runs        = len(run_ids)
