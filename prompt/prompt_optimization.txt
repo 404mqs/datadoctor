@@ -95,6 +95,7 @@ TABLE_SIZES:
 AVAILABLE_CELLS (use EXACTLY these IDs in the "celda_id" field):
 {cell_index}
 
+{rechazos_previos}
 CURRENT CODE:
 ```python
 {notebook_source}

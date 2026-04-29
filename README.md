@@ -25,27 +25,31 @@
 Orchestrator job finishes
         │
         ▼
-  ┌─────────────────────────────────────────────────────┐
-  │  datadoc  (runs as the last task in your job)        │
-  │                                                      │
-  │  1. Jobs API  ──▶  top N slowest notebooks           │
-  │  2. Export source + classify  ──▶  🟢 green / 🟡 yellow │
-  │  3. Estimate table sizes  ──▶  broadcast safety check │
-  │  4. LLM  ──▶  JSON with per-cell optimization diffs  │
-  │  5. Reconstruct v2 applying diffs to original        │
-  │  6. Save v2 to  /proposals/                          │
-  │  7. If 🟢 green  ──▶  validate equivalence           │
-  │  8. Insert into  datadoc.proposals                   │
-  │  9. Notify team  ──▶  Slack with approve/reject      │
-  └─────────────────────────────────────────────────────┘
+  ┌──────────────────────────────────────────────────────────────┐
+  │  datadoc  (runs as the last task in your job)                 │
+  │                                                               │
+  │  1. Jobs API  ──▶  average of N runs  ──▶  top K slowest     │
+  │  2. Export source + compute SHA-256 hash                      │
+  │  3. Classify  ──▶  🟢 green / 🟡 yellow  (tier + side-effects)│
+  │  4. Estimate table sizes  ──▶  broadcast safety map           │
+  │  5. Fetch last 5 rejected proposals for this notebook         │
+  │  6. LLM call  ──▶  JSON with per-cell optimization diffs      │
+  │     └─ rejected history injected as negative context          │
+  │  7. Reconstruct v2 by applying diffs to original source       │
+  │  8. Save v2 to  {workspace_path}/proposals/                   │
+  │  9. If 🟢 green  ──▶  validate output equivalence (T1/T2/T3) │
+  │ 10. Insert into  datadoc.proposals  (with source hash)        │
+  │ 11. Notify team  ──▶  Slack with approve/reject buttons       │
+  └──────────────────────────────────────────────────────────────┘
         │
         ▼  (when you decide)
-  ┌──────────────────────┐
-  │  datadoc_approve      │
-  │  ✅ approve           │  ──▶  backup original + apply v2
-  │  ❌ reject            │  ──▶  mark as rejected
-  │  ↩️  rollback         │  ──▶  restore from backup
-  └──────────────────────┘
+  ┌──────────────────────────────────────────────────────────────┐
+  │  datadoc_approve                                              │
+  │  ✅ approve  ──▶  verify source hash  ──▶  backup + apply v2  │
+  │                    (if hash mismatch → reject as 'stale')     │
+  │  ❌ reject   ──▶  mark as rejected (feeds future LLM context) │
+  │  ↩️  rollback ──▶  restore from backup                        │
+  └──────────────────────────────────────────────────────────────┘
 ```
 
 ## Requirements
@@ -115,11 +119,13 @@ When Data Doctor finds optimizations it posts to Slack:
 | Button | Action |
 |---|---|
 | 🔍 **Review v2** | Opens the proposed notebook in your workspace |
-| ✅ **Approve** | Backs up original + overwrites with v2 |
-| ❌ **Reject** | Marks the proposal as rejected |
+| ✅ **Approve** | Verifies the notebook wasn't edited since proposal; backs up + overwrites with v2 |
+| ❌ **Reject** | Marks as rejected; description is fed back to LLM on the next proposal for this notebook |
+
+**Stale protection**: if the notebook was manually edited after the proposal was generated, the approve action is blocked and the proposal is marked `stale`. Data Doctor will generate a fresh proposal the next day incorporating the manual changes.
 
 To approve **without Slack**, run `datadoc_approve` manually and set the `proposal_id` widget.
-To **rollback** after approving, run `datadoc_approve` with `accion=rollback`.
+To **rollback** after approving, run `datadoc_approve` with `action=rollback`.
 
 ---
 
@@ -170,6 +176,7 @@ To disable cooldown entirely, set `agent.cooldown_days: 0` in the config.
 | `agent.odd_days_only` | `true` | Run every other day to save LLM tokens |
 | `agent.delta_schema` | `datadoc` | Delta schema for proposals and applied changes |
 | `agent.self_task_key` | `DATADOCTOR` | Task key to exclude from slow-task ranking |
+| `agent.runs_to_average` | `2` | Past runs to average when ranking slow notebooks — higher values smooth out outliers |
 | `llm.endpoint_name` | `databricks-claude-opus-4-7` | LLM serving endpoint |
 | `llm.max_tokens` | `16000` | Max tokens for LLM response |
 | `notifications.type` | `slack` | `slack` or `none` |
@@ -177,6 +184,26 @@ To disable cooldown entirely, set `agent.cooldown_days: 0` in the config.
 | `notifications.slack.channel_audit` | — | Channel for approve/reject confirmations |
 | `notifications.slack.secret_scope` | `datadoctor` | Databricks secret scope name |
 | `notifications.slack.secret_key` | `slack_bot_token` | Key within the scope |
+
+---
+
+## Multiple orchestrators
+
+If your team runs several orchestrator jobs, deploy a separate Data Doctor instance per job.
+Each instance needs its own config file (`datadoctor_config.yml`) pointing to the correct `job_id`, and a distinct `agent.delta_schema` (e.g. `datadoc_pipelines`, `datadoc_ml`).
+
+The proposals and applied-changes tables are scoped to that schema, so histories and rejection context stay isolated per orchestrator.
+
+```yaml
+# config for the ML orchestrator
+databricks:
+  job_id: 987654321
+agent:
+  delta_schema: "datadoc_ml"
+  self_task_key: "DATADOCTOR_ML"
+```
+
+Run `scripts/upload_all.py` once per instance (it reads the path from your config).
 
 ---
 

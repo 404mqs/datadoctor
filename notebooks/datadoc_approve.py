@@ -108,10 +108,13 @@ if ACTION == "approve":
               "Make sure you have reviewed v2 manually.")
 
     print(f"\n🔧 Applying proposal {PROPOSAL_ID} ...")
-    result = apply_proposal(HOST, TOKEN, spark, PROPOSAL_ID, USER,
-                            backup_dir=BACKUP_DIR,
-                            delta_schema=DELTA_SCHEMA,
-                            notes=NOTES)
+    try:
+        result = apply_proposal(HOST, TOKEN, spark, PROPOSAL_ID, USER,
+                                backup_dir=BACKUP_DIR,
+                                delta_schema=DELTA_SCHEMA,
+                                notes=NOTES)
+    except ValueError as _e:
+        dbutils.notebook.exit(str(_e))
     print(f"✅ Applied")
     print(f"   Backup at: {result['backup_path']}")
     print(f"   To revert: run this notebook with action='rollback' and the same proposal_id.")

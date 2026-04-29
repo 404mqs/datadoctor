@@ -37,7 +37,9 @@ CREATE TABLE IF NOT EXISTS datadoc.proposals (
   validation_details   STRING,                -- JSON con conteos/sumas/diffs
   validation_run_id    BIGINT,                -- run_id del test run si se corrió
 
-  status               STRING,                -- 'proposed' | 'approved' | 'rejected' | 'applied' | 'expired'
+  original_source_hash STRING,               -- SHA-256 of the original notebook source at proposal creation time; used to detect manual edits after proposal was generated
+
+  status               STRING,                -- 'proposed' | 'approved' | 'rejected' | 'applied' | 'expired' | 'stale'
   status_updated_ts    TIMESTAMP,
   status_updated_by    STRING,
   notes                STRING                 -- comentarios de Marcos al aprobar/rechazar
@@ -45,6 +47,9 @@ CREATE TABLE IF NOT EXISTS datadoc.proposals (
 USING DELTA
 PARTITIONED BY (status)
 COMMENT 'Data Doctor — propuestas de optimización generadas por el agente';
+
+-- Migration: add column to existing table (run once)
+-- ALTER TABLE datadoc.proposals ADD COLUMNS (original_source_hash STRING);
 
 -- ------------------------------------------------------------
 -- Tabla: applied_changes

@@ -97,6 +97,7 @@ else:
 
 # DBTITLE 1,Imports + runtime constants
 import base64
+import hashlib
 import json
 import re
 import sys
@@ -454,8 +455,51 @@ def _parse_llm_response(raw: str) -> dict:
     raise json.JSONDecodeError("No valid JSON found in LLM response", text, 0)
 
 
+def get_rejected_history(task_key: str) -> str:
+    """
+    Returns the last 5 rejected proposals for a task_key as formatted text
+    to inject into the LLM prompt. Returns "" if no rejected proposals exist.
+    """
+    try:
+        rows = spark.sql(f"""
+            SELECT llm_analysis
+            FROM {DELTA_SCHEMA}.proposals
+            WHERE task_key = :tk AND status = 'rejected'
+            ORDER BY created_ts DESC
+            LIMIT 5
+        """, {"tk": task_key}).collect()
+    except Exception:
+        return ""
+
+    if not rows:
+        return ""
+
+    items = []
+    for row in rows:
+        try:
+            analisis = json.loads(row["llm_analysis"] or "{}")
+            cambios = analisis.get("cambios_aplicados", [])
+            for c in cambios:
+                desc = c.get("descripcion", "").strip()
+                if desc:
+                    items.append(desc)
+        except Exception:
+            continue
+
+    if not items:
+        return ""
+
+    lines = "\n".join(f"- {item}" for item in items)
+    return (
+        "PREVIOUSLY REJECTED OPTIMIZATIONS FOR THIS NOTEBOOK "
+        "(do not re-propose any of these):\n"
+        f"{lines}\n"
+    )
+
+
 def call_llm(notebook_path: str, duration_min: float, target_tables: List[str],
-             source: str, size_context: str = "") -> Dict:
+             source: str, size_context: str = "",
+             rejected_history: str = "") -> Dict:
     """Calls the configured LLM endpoint and parses the JSON response."""
     cells_enum = _enumerate_cells(source)
     cell_index = _build_cell_index(cells_enum)
@@ -469,6 +513,7 @@ def call_llm(notebook_path: str, duration_min: float, target_tables: List[str],
         .replace("{target_tables}",    ", ".join(target_tables) or "(none detected)")
         .replace("{table_sizes}",      size_context or "(sizes not available)")
         .replace("{cell_index}",       cell_index)
+        .replace("{rechazos_previos}", rejected_history)
         .replace("{notebook_source}",  source_llm)
     )
 
@@ -678,6 +723,8 @@ for task in candidates:
         })
         continue
 
+    src_hash = hashlib.sha256(source.encode()).hexdigest()
+
     # 2. Classify
     classification = classify_notebook(source)
     tier = classification["tier"]
@@ -691,18 +738,29 @@ for task in candidates:
     print(f"  sizes: {len(sizes)} tables/parquets estimated")
 
     # 4. LLM -> v2
+    rejected_history = get_rejected_history(task_key)
+    if rejected_history:
+        print(f"  [p7] injecting {rejected_history.count(chr(10) + '-')} prior rejections into prompt")
     try:
-        llm_result = call_llm(notebook_path, duration_min, target_tables, source, size_context)
+        llm_result = call_llm(notebook_path, duration_min, target_tables, source, size_context,
+                              rejected_history=rejected_history)
     except Exception as e:
         print(f"  [llm] error: {e}")
         try:
             spark.sql(f"""
                 INSERT INTO {DELTA_SCHEMA}.proposals
+                  (proposal_id, created_ts, run_id, task_key, original_path, v2_path,
+                   duration_original_s, tier, tier_reason, target_tables, side_effects,
+                   llm_model, llm_analysis, llm_duration_s,
+                   validation_status, validation_details, validation_run_id,
+                   original_source_hash,
+                   status, status_updated_ts, status_updated_by, notes)
                 SELECT
                   :pid, :ts, :rid, :tk, :op, NULL, :dur,
                   :tier, :reason, :tables, :sfx,
                   :model, :llm, 0.0,
                   'llm_error', NULL, NULL,
+                  :hash,
                   'proposed', :ts, 'datadoc', NULL
             """, {
                 "pid": proposal_id, "ts": EXECUTION_TS, "rid": run_id, "tk": task_key,
@@ -711,6 +769,7 @@ for task in candidates:
                 "tables": target_tables, "sfx": classification["side_effects"],
                 "model": LLM_MODEL,
                 "llm": json.dumps({"error": str(e)}, ensure_ascii=False),
+                "hash": src_hash,
             })
         except Exception as db_err:
             print(f"  [db] could not record llm_error: {db_err}")
@@ -772,11 +831,18 @@ for task in candidates:
     # 7. Insert proposal
     spark.sql(f"""
         INSERT INTO {DELTA_SCHEMA}.proposals
+          (proposal_id, created_ts, run_id, task_key, original_path, v2_path,
+           duration_original_s, tier, tier_reason, target_tables, side_effects,
+           llm_model, llm_analysis, llm_duration_s,
+           validation_status, validation_details, validation_run_id,
+           original_source_hash,
+           status, status_updated_ts, status_updated_by, notes)
         SELECT
           :pid, :ts, :rid, :tk, :op, :v2p, :dur,
           :tier, :reason, :tables, :sfx,
           :model, :llm, :llm_dur,
           :vstatus, :vdetails, :vrid,
+          :hash,
           'proposed', :ts, 'datadoc', NULL
     """, {
         "pid": proposal_id, "ts": EXECUTION_TS, "rid": run_id, "tk": task_key,
@@ -789,6 +855,7 @@ for task in candidates:
         "vdetails": json.dumps(validation["details"], ensure_ascii=False, default=str)
                     if validation["details"] else None,
         "vrid": validation["run_id"],
+        "hash": src_hash,
     })
 
     # 8. Create ephemeral jobs for Slack buttons

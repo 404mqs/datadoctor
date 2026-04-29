@@ -16,6 +16,7 @@ Rollback:
 """
 
 import base64
+import hashlib
 import json
 import time
 import urllib.parse
@@ -85,7 +86,7 @@ def apply_proposal(host: str, token: str, spark,
     """
     # 1. Read the proposal
     proposals = spark.sql(f"""
-        SELECT original_path, v2_path, status, task_key
+        SELECT original_path, v2_path, status, task_key, original_source_hash
         FROM {delta_schema}.proposals
         WHERE proposal_id = '{proposal_id}'
     """).collect()
@@ -104,6 +105,27 @@ def apply_proposal(host: str, token: str, spark,
     original_path = prop["original_path"]
     v2_path       = prop["v2_path"]
     task_key      = prop["task_key"]
+    stored_hash   = prop["original_source_hash"]
+
+    # 1b. Race condition check: verify the notebook was not manually edited after proposal creation
+    if stored_hash:
+        current_source = export_notebook_source(host, token, original_path)
+        current_hash   = hashlib.sha256(current_source.encode()).hexdigest()
+        if current_hash != stored_hash:
+            spark.sql(f"""
+                UPDATE {delta_schema}.proposals
+                SET status = 'stale',
+                    status_updated_ts = current_timestamp(),
+                    status_updated_by = '{applied_by}',
+                    notes = concat(coalesce(notes, ''), '[STALE: notebook manually edited after proposal]')
+                WHERE proposal_id = '{proposal_id}'
+            """)
+            raise ValueError(
+                f"⚠️ `{task_key}` was modified after this proposal was generated. "
+                "The change was NOT applied to avoid overwriting recent manual edits. "
+                "The proposal has been marked as 'stale'. "
+                "Data Doctor will generate a new proposal tomorrow incorporating the manual changes."
+            )
 
     # 2. Backup the original
     mkdirs(host, token, backup_dir)
