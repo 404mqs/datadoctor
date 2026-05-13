@@ -184,6 +184,32 @@ To disable cooldown entirely, set `agent.cooldown_days: 0` in the config.
 | `notifications.slack.channel_audit` | — | Channel for approve/reject confirmations |
 | `notifications.slack.secret_scope` | `datadoctor` | Databricks secret scope name |
 | `notifications.slack.secret_key` | `slack_bot_token` | Key within the scope |
+| `cluster_cost_weights` | *(absent)* | Map of `node_type_id → relative cost` for ROI-based ranking *(optional)* |
+| `photon_cost_multiplier` | `1.5` | DBU multiplier for Photon-enabled clusters |
+
+### Cluster cost weights (optional)
+
+By default, Data Doctor ranks notebooks by average duration. If your orchestrator
+uses clusters with very different cost profiles (a 16-worker memory-optimized cluster
+vs a single baseline node), duration alone may not reflect actual spend.
+
+Add `cluster_cost_weights` to your config to rank by estimated DBU cost instead:
+
+```yaml
+cluster_cost_weights:
+  Standard_DS3_v2: 1.0   # baseline
+  Standard_E8d_v4: 3.0   # memory-optimized, 8 cores
+  Standard_E16d_v4: 6.0  # memory-optimized, 16 cores
+
+photon_cost_multiplier: 1.5  # clusters with Photon cost ~1.5× more DBUs
+```
+
+Score formula: `duration_min × node_weight × (num_workers + 1) × photon_mult`
+
+The `×3.0` multiplier appears next to the duration in Slack only when it differs
+from `1.0` — no visual noise when all tasks share the same cluster type.
+
+If `cluster_cost_weights` is absent from the config, ranking is unchanged.
 
 ---
 
