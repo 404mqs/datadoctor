@@ -156,7 +156,7 @@ class SlackNotifier(BaseNotifier):
                                "text": f"Daily optimization report  ·  {now.strftime('%Y-%m-%d')}  ·  {now.strftime('%H:%M')} UTC"}]},
                 {"type": "context",
                  "elements": [{"type": "mrkdwn",
-                               "text": f"{run_label}  ·  Top {top_n} slowest notebooks"}]},
+                               "text": f"{run_label}  ·  Top {top_n} {'by cost score' if any(p.get('cost_weight', 1.0) != 1.0 for p in proposals) else 'slowest'} notebooks"}]},
             ]
         }]
 
@@ -200,9 +200,11 @@ class SlackNotifier(BaseNotifier):
             vstatus    = p["validation_status"]
             att        = []
 
+            cw = p.get("cost_weight", 1.0)
+            cost_str = f"  ·  *{cw:.1f}×*" if cw != 1.0 else ""
             att.append({"type": "section",
                         "text": {"type": "mrkdwn",
-                                 "text": f"*{i}. `{p['task_key']}`*  {tier_emoji} {val_emoji}\n*{p['duration_min']:.1f} min*"}})
+                                 "text": f"*{i}. `{p['task_key']}`*  {tier_emoji} {val_emoji}\n*{p['duration_min']:.1f} min*{cost_str}"}})
 
             qh = analisis.get("que_hace") or analisis.get("what_it_does")
             if qh:
