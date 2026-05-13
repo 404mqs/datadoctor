@@ -69,3 +69,31 @@ notifications:
 # Optional — leave empty or omit this key to skip permission assignment.
 approvers:
   - "user@yourcompany.com"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Cluster cost weights (optional — P11 ROI-based ranking)
+#
+# Data Doctor ranks tasks by  score = duration_min × cost_weight  instead of
+# pure duration when this section is present.
+#
+# cost_weight = node_weight × (num_workers + 1) × photon_multiplier
+#   node_weight:   relative DBU cost per node, keyed by node_type_id
+#   num_workers:   taken from the job/cluster definition
+#   +1:            accounts for the driver node
+#
+# Any node_type_id not listed defaults to 1.0.
+# If this section is absent, all weights default to 1.0 (ranking = duration).
+# ─────────────────────────────────────────────────────────────────────────────
+cluster_cost_weights:
+  Standard_DS3_v2:  1.0    # 4 cores, 14 GB  — baseline
+  Standard_DS4_v2:  2.0    # 8 cores, 28 GB
+  Standard_DS5_v2:  4.0    # 16 cores, 56 GB
+  Standard_D8s_v3:  2.0    # 8 cores, 32 GB
+  Standard_E4d_v4:  1.5    # 4 cores, 32 GB  (memory-optimized)
+  Standard_E8d_v4:  3.0    # 8 cores, 64 GB
+  Standard_E16d_v4: 6.0    # 16 cores, 128 GB
+  Standard_E32d_v4: 12.0   # 32 cores, 256 GB
+
+# Multiplier applied when a cluster has Photon enabled (runtime_engine: PHOTON).
+# Photon workloads typically cost ~1.5× more DBUs. Set to 1.0 to ignore.
+photon_cost_multiplier: 1.5
