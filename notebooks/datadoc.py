@@ -115,6 +115,7 @@ from datadoc_tier_classifier import classify_notebook
 from datadoc_validator       import validate_proposal, upload_notebook
 from datadoc_swap            import export_notebook_source
 from datadoc_table_sizer     import estimate_sizes, format_size_context
+from datadoc_cost            import compute_cost_weight
 
 # Import notifier based on config
 _notif_type = CFG.get("notifications", {}).get("type", "none")
@@ -264,6 +265,68 @@ def apply_cooldown(ranked_all: List[dict], cooled: Dict[str, datetime], top_n: i
     return result
 
 
+def fetch_task_cost_weights() -> Dict[str, float]:
+    """Returns {task_key: cost_weight} for all tasks in the orchestrator job.
+
+    cost_weight = node_weight × (num_workers + 1) × photon_mult
+    Defaults to 1.0 for tasks with unknown or unlisted cluster types.
+    """
+    weight_map  = CFG.get("cluster_cost_weights", {})
+    photon_mult = float(CFG.get("photon_cost_multiplier", 1.5))
+
+    if not weight_map:
+        return {}  # no weights configured — ranking stays duration-based
+
+    resp     = http("GET", "/api/2.1/jobs/get", params={"job_id": JOB_ID})
+    settings = resp.get("settings", {})
+
+    # Build job_cluster_key → cluster spec
+    jc_specs: Dict[str, dict] = {}
+    for jc in settings.get("job_clusters", []):
+        key = jc.get("job_cluster_key", "")
+        nc  = jc.get("new_cluster", {})
+        jc_specs[key] = {
+            "node_type":   nc.get("node_type_id", ""),
+            "num_workers": nc.get("num_workers") or (nc.get("autoscale") or {}).get("max_workers"),
+            "photon":      nc.get("runtime_engine", "").upper() == "PHOTON",
+        }
+
+    ec_cache: Dict[str, dict] = {}  # cache for existing_cluster_id lookups
+
+    result: Dict[str, float] = {}
+    for t in settings.get("tasks", []):
+        tk = t.get("task_key", "")
+        if not tk:
+            continue
+
+        spec = {"node_type": "", "num_workers": None, "photon": False}
+        jck  = t.get("job_cluster_key")
+        eci  = t.get("existing_cluster_id")
+
+        if jck and jck in jc_specs:
+            spec = jc_specs[jck]
+        elif eci:
+            if eci not in ec_cache:
+                try:
+                    cr = http("GET", "/api/2.0/clusters/get", params={"cluster_id": eci})
+                    ec_cache[eci] = {
+                        "node_type":   cr.get("node_type_id", ""),
+                        "num_workers": cr.get("num_workers") or (cr.get("autoscale") or {}).get("max_workers"),
+                        "photon":      cr.get("runtime_engine", "").upper() == "PHOTON",
+                    }
+                except Exception as e:
+                    print(f"  [cost_weights] could not fetch cluster {eci}: {e}")
+                    ec_cache[eci] = spec
+            spec = ec_cache[eci]
+
+        result[tk] = compute_cost_weight(
+            spec["node_type"], spec["num_workers"], spec["photon"],
+            weight_map, photon_mult,
+        )
+
+    return result
+
+
 if RUN_ID_WIDGET:
     run_ids = [int(RUN_ID_WIDGET)]
     print(f"Manual run: {run_ids[0]}")
@@ -276,22 +339,34 @@ avg_durations = fetch_avg_task_durations(run_ids)
 
 # Get full ranking (no limit) so we can replace cooled-down tasks
 notebook_paths_all = fetch_notebook_paths_from_job(JOB_ID)
+cost_weights = fetch_task_cost_weights()
 ranked_all = [
-    {"task_key": tk, "duration_s": avg_s, "notebook_path": notebook_paths_all[tk]}
+    {
+        "task_key":      tk,
+        "duration_s":    avg_s,
+        "notebook_path": notebook_paths_all[tk],
+        "cost_weight":   cost_weights.get(tk, 1.0),
+        "score":         avg_s * cost_weights.get(tk, 1.0),
+    }
     for tk, avg_s in avg_durations.items()
     if tk in notebook_paths_all
 ]
-ranked_all.sort(key=lambda x: x["duration_s"], reverse=True)
+ranked_all.sort(key=lambda x: x["score"], reverse=True)
 
 cooled_tasks = get_cooled_tasks(COOLDOWN_DAYS)
 top_tasks    = apply_cooldown(ranked_all, cooled_tasks, TOP_N)
 candidates   = apply_cooldown(ranked_all, cooled_tasks, len(ranked_all))  # full pool for fallback
 
-label = f"avg. {n_runs} run{'s' if n_runs > 1 else ''}"
-print(f"\nTop {TOP_N} slowest ({label}) — cooldown={COOLDOWN_DAYS}d ({len(candidates)} candidates total):")
+any_weighted = any(t["cost_weight"] != 1.0 for t in ranked_all)
+rank_label   = "by cost score" if any_weighted else "slowest"
+label        = f"avg. {n_runs} run{'s' if n_runs > 1 else ''}"
+print(f"\nTop {TOP_N} {rank_label} ({label}) — cooldown={COOLDOWN_DAYS}d ({len(candidates)} candidates total):")
 for i, t in enumerate(top_tasks, 1):
     mins = t["duration_s"] / 60
-    print(f"  {i}. {t['task_key']:<50} {mins:6.1f} min")
+    if any_weighted:
+        print(f"  {i}. {t['task_key']:<50} {mins:6.1f} min  ×{t['cost_weight']:.1f}  →  {t['score']/60:.1f} score")
+    else:
+        print(f"  {i}. {t['task_key']:<50} {mins:6.1f} min")
 
 # COMMAND ----------
 
@@ -874,6 +949,7 @@ for task in candidates:
         "approve_url": approve_url,
         "reject_url":  reject_url,
         "review_url":  review_url,
+        "cost_weight": task.get("cost_weight", 1.0),
     })
     accepted += 1
 
